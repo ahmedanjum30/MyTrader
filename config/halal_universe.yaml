@@ -1,0 +1,92 @@
+# Halal-screened US equities allowlist.
+#
+# Seeded from the intersection of two AAOIFI-screened ETFs:
+#   - SPUS (SP Funds S&P 500 Sharia Industry Exclusions ETF)
+#   - HLAL (Wahed FTSE USA Shariah ETF)
+#
+# Compliance is NOT static. Debt-to-market-cap, cash-and-receivables-to-market-cap,
+# and impermissible-income ratios change every quarter. Re-screen at least quarterly,
+# ideally before each rebalance, against a current Shariah screening source
+# (Zoya, Islamicly, Musaffa, or your scholar's guidance).
+#
+# Last reviewed: 2026-05-09 (initial seed — VERIFY before live trading)
+
+universe:
+  # Technology (largest allocation in both SPUS and HLAL)
+  - AAPL    # Apple
+  - MSFT    # Microsoft
+  - NVDA    # Nvidia
+  - GOOGL   # Alphabet Class A
+  - META    # Meta Platforms
+  - AVGO    # Broadcom
+  - ADBE    # Adobe
+  - CRM     # Salesforce
+  - CSCO    # Cisco Systems
+  - ORCL    # Oracle
+  - QCOM    # Qualcomm
+  - TXN     # Texas Instruments
+  - AMD     # Advanced Micro Devices
+
+  # Healthcare (screen carefully — exclude any with significant interest income)
+  - LLY     # Eli Lilly
+  - ABBV    # AbbVie
+  - TMO     # Thermo Fisher Scientific
+  - ABT     # Abbott Laboratories
+  - DHR     # Danaher
+  - AMGN    # Amgen
+  - ISRG    # Intuitive Surgical
+
+  # Energy
+  - XOM     # Exxon Mobil
+  - CVX     # Chevron
+  - COP     # ConocoPhillips
+
+  # Industrials / Materials
+  - LIN     # Linde
+  - HON     # Honeywell
+
+  # Commodities — physically-backed only (no futures-based ETFs)
+  # Halal because: 100% physical backing constitutes constructive ownership
+  # of a ribawi asset. AAOIFI permits gold/silver ETFs that are fully physical.
+  # HGER (Wahed Gold) is the explicitly-halal-marketed option but launched 2024.
+  - GLDM    # SPDR Gold MiniShares (0.10% expense, physical gold)
+  - IAUM    # iShares Gold Trust Micro (0.09% expense, physical gold)
+  - SIVR    # Aberdeen Physical Silver Shares (0.30% expense, physical silver)
+
+# Symbols that are commonly debated or fluctuate near ratio thresholds.
+# Listed here as a reminder — NOT included in `universe` unless you've
+# verified current ratios with your screening source.
+watchlist_review_required:
+  - TSLA    # Debt ratio fluctuates near AAOIFI threshold
+  - PG      # Debt ratio historically borderline
+  - KO      # Debt ratio borderline; some scholars exclude
+  - HD      # Debt ratio borderline
+  - NEE     # Utility with significant debt
+  - INTU    # Some financial-ratio concerns
+
+# Sector-level hard exclusions. Symbols matching these business lines
+# must NEVER be added to `universe`, regardless of ratios.
+forbidden_sectors:
+  - conventional_banking
+  - conventional_insurance
+  - alcohol
+  - tobacco
+  - gambling
+  - adult_entertainment
+  - weapons_defense_primary  # primary defense contractors; dual-use tech may be ok
+  - pork
+  - conventional_asset_management
+  - interest_based_lending
+
+# Commodity-class exclusions. These hold derivatives (futures), not physical
+# assets, so they fail the constructive-ownership requirement for ribawi
+# items and the no-derivatives principle generally.
+forbidden_commodity_etfs:
+  - USO     # United States Oil Fund — oil futures, not physical
+  - BNO     # United States Brent Oil Fund — Brent futures
+  - DBC     # Invesco Commodity Tracking — broad futures basket
+  - DJP     # iPath Bloomberg Commodity — futures
+  - GSG     # iShares Commodity Indexed — futures
+  - UNG     # Natural gas futures
+  - VNQ     # Vanguard REIT — most REIT debt fails AAOIFI screen
+  - IYR     # iShares US REIT — same
