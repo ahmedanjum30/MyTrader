@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 import pandas as pd
+from alpaca.data.enums import DataFeed
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
@@ -151,14 +152,17 @@ class AlpacaBroker:
 
     def historical_bars(self, symbol: str, lookback_days: int = 60,
                         timeframe: TimeFrame = TimeFrame.Day) -> pd.DataFrame:
+        # Free tier uses IEX feed (no SIP subscription required).
+        # IEX has lower volume than full SIP but mega-cap prices match closely.
         end = pd.Timestamp.now(tz="UTC")
-        start = end - pd.Timedelta(days=lookback_days * 2)  # extra padding for non-trading days
+        start = end - pd.Timedelta(days=lookback_days * 2)
         request = StockBarsRequest(
             symbol_or_symbols=symbol.upper(),
             timeframe=timeframe,
             start=start,
             end=end,
             limit=lookback_days * 2,
+            feed=DataFeed.IEX,
         )
         bars = self.data.get_stock_bars(request)
         if symbol.upper() not in bars.data or not bars.data[symbol.upper()]:
@@ -211,9 +215,11 @@ class AlpacaBroker:
             "time_in_force": TimeInForce.DAY,
         }
         if quantity is not None:
-            kwargs["qty"] = float(quantity)
+            # Alpaca caps fractional qty precision at 9 decimals
+            kwargs["qty"] = round(float(quantity), 9)
         else:
-            kwargs["notional"] = float(notional)
+            # Alpaca requires notional to be 2 decimal places (cents)
+            kwargs["notional"] = round(float(notional), 2)
 
         log.info("Submitting %s %s%s (paper=%s)",
                  side,
