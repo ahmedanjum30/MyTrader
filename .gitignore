@@ -32,6 +32,7 @@ Thumbs.db
 logs/
 *.log
 data/cache/
+**/data/cache/
 *.db
 *.sqlite
 

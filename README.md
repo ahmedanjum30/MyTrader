@@ -1,108 +1,122 @@
-# MT — Halal-screened equities trading bot
+# MyTrader — Halal trading bot, dual-broker
 
-A small Python bot that trades a hand-screened universe of US equities through
-Interactive Brokers (paper or live). All orders pass through a halal allowlist
-guard *and* a cash-account / no-shorting risk check before they leave the engine.
+Two parallel broker implementations sharing the same halal universe, risk model, strategies, and backtester. Pick the broker that fits your country.
 
-## Halal trading rules baked in
+```
+MT/
+├── ibkr/                 ← Interactive Brokers implementation (mt CLI)
+│   ├── src/mt/
+│   ├── tests/
+│   ├── config/halal_universe.yaml
+│   └── pyproject.toml
+└── alpaca/               ← Alpaca implementation (mta CLI)
+    ├── src/mt_alpaca/
+    ├── tests/
+    ├── config/halal_universe.yaml
+    └── pyproject.toml
+```
 
-These are enforced in code, not just convention. Bypassing them requires
-editing the source.
+## Which one to use
 
-1. **Universe allowlist** — only symbols in [config/halal_universe.yaml](config/halal_universe.yaml) can be traded. Seeded from the intersection of SPUS and HLAL ETF holdings.
-2. **Cash account only** — engine refuses to start on a margin account (no interest-bearing borrowing).
-3. **No short selling** — `SELL` orders rejected if quantity exceeds current long position.
-4. **No options / futures / forex** — broker layer only exposes equities.
-5. **No interest on idle cash** — see "Required IBKR setup" below; you must opt out manually in IBKR.
+| If you're in… | Use |
+|---|---|
+| Pakistan / most non-US countries (until verified Alpaca eligibility) | **IBKR** |
+| US / Alpaca-supported countries | **Alpaca** (cheaper, fractional via API, modern REST) |
+| Both available | **Alpaca** is simpler; IBKR has wider international order routing |
 
-The first guard runs in [src/mt/engine.py](src/mt/engine.py) before any data is fetched, and again at the broker boundary in [src/mt/broker.py:submit_market_order](src/mt/broker.py).
+## Halal trading rules (enforced in both implementations)
 
-## Required IBKR setup
+These are baked into both `ibkr/` and `alpaca/`:
 
-You need an Interactive Brokers account (works from Pakistan). Paper trading
-is included with any account.
+1. **Universe allowlist** — only screened symbols can be traded; `assert_halal()` runs at engine pre-flight AND broker submit
+2. **Cash account only** — engine refuses to start if account has margin enabled
+3. **No short selling** — `SELL` orders rejected if quantity > current long position
+4. **No options/futures/forex** — broker layer exposes equities only
+5. **No interest on idle cash** — for IBKR, opt out manually; Alpaca cash accounts don't pay interest by default
+6. **Live-port guardrail** — `ALLOW_LIVE=true` required to permit any live-API call
 
-**Critical halal step — opt out of interest on cash:**
-1. Log into IBKR Account Management
-2. Settings → Account Configuration → "Interest Paid on Cash"
-3. Set to **No** / opt out
-4. IBKR pays interest on USD balances over $10,000 by default. That income is riba.
-
-**Account type:** make sure the account is **Cash**, not **Margin**. The bot
-will refuse to connect to a margin account, but you should choose Cash at
-sign-up regardless.
-
-**Run TWS or IB Gateway:**
-- Download Trader Workstation or IB Gateway from interactivebrokers.com
-- Log into the **paper** trading account
-- Enable API: Configure → Settings → API → Settings:
-  - Check "Enable ActiveX and Socket Clients"
-  - Uncheck "Read-Only API"
-  - Socket port: `4002` (Gateway paper, recommended) or `7497` (TWS paper)
-  - Add `127.0.0.1` to "Trusted IPs"
-- Restart Gateway/TWS for settings to fully apply
-
-## Setup
+## Setup — IBKR side
 
 ```bash
-# Python 3.11+
+cd ibkr
 python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 
 cp .env.example .env
-# fill in IBKR_ACCOUNT (your paper account ID, e.g. DU1234567)
+# fill in IBKR_ACCOUNT (your paper account ID, e.g. DUQ123456)
 
-# Verify the universe loads
-mt list-universe
-
-# With TWS/Gateway running on the paper port:
-mt account                 # confirm connection + cash account
-mt run --dry-run           # compute signals, submit nothing
-mt run                     # actually place paper orders
+# Make sure IB Gateway is running and logged into paper:
+mt account               # confirm connection + cash account
+mt list-universe         # print 28 screened symbols
+mt deploy --budget 1000  # one-shot whole-share buyhold (greedy-cheapest)
+mt status --budget 1000  # color-coded P&L
 ```
 
-## Tests
+See [ibkr/README.md](ibkr/README.md) for full IBKR setup details.
+
+## Setup — Alpaca side
 
 ```bash
-pytest
+cd alpaca
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+
+cp .env.example .env
+# fill in ALPACA_API_KEY and ALPACA_SECRET_KEY from your dashboard
+
+# No local gateway needed — pure REST API:
+mta account              # confirm connection + cash account
+mta list-universe        # same 28 symbols (shared config)
+mta deploy --budget 1000 --strategy buyhold  # fractional buyhold of full universe
+mta status --budget 1000 # color-coded P&L
 ```
 
-The universe and risk tests do not require a running IBKR connection.
+## Key differences between the two
+
+| | IBKR (`mt`) | Alpaca (`mta`) |
+|---|---|---|
+| Country availability | Most countries (incl. Pakistan) | US + selected (verify) |
+| Connection | Local Gateway / TWS via socket | Pure HTTPS REST |
+| Setup overhead | Run IB Gateway, log in, configure API | API key + secret, that's it |
+| Commission | $0.0035/share, $0.35 min | $0 |
+| Fractional shares (API) | ❌ Blocked | ✅ Native |
+| Mobile app | TWS Mobile separate | Trade from web/mobile |
+| Universe approach | Whole-share greedy-cheapest workaround | Equal-weight full universe |
+| Real-time data | Subscription tiers | Free for paper |
+
+## What's shared between them
+
+Both implementations contain identical copies of:
+- `config/halal_universe.yaml` — 28-symbol AAOIFI-screened allowlist
+- `universe.py` — `assert_halal()` guard
+- `risk.py` — RiskLimits, halal trading rules
+- `strategy.py` — 9 strategies (BuyAndHold, SmaCrossover, TrendFilter, Momentum, QuarterlyEqualWeight, InverseVolWeighted, InverseVolTrendGated, SwingMeanReversion, SwingBreakout)
+- `backtest/` — yfinance-based walk-forward backtester (broker-independent)
+- 27 unit tests (universe, risk, portfolio invariants)
+
+This redundancy is intentional for v1 — keeps each side self-contained and broker-agnostic refactoring is non-trivial. Future work: extract shared core into a `halal_core` package both depend on.
+
+## Backtest results
+
+We tested 9 strategies across 5 historical regimes (GFC, mid-cycle bull, COVID, inflation drawdown, AI bull). Headline finding: **buy-and-hold beats every active strategy** at retail size, after costs.
+
+- $10k → $53k over 6 years on buyhold (28% CAGR — abnormally good 2020–2026)
+- All active strategies underperformed; some lost money
+- Realistic forward expectation: 8–12% CAGR long-run
+
+See backtest commands: `mt backtest`, `mt regimes`, `mt compare`, `mt yearly`.
 
 ## Going live
 
-The bot will refuse to connect to a live-trading port (7496 or 4001) unless
-`ALLOW_LIVE=true` is set in `.env`. Before flipping that flag:
+Default is paper. To enable live API:
 
-1. Run `mt run` against paper for **at least several weeks**, then read the trade log line by line.
-2. Re-screen every symbol in the universe against current AAOIFI ratios. Compliance changes quarterly.
-3. Confirm the IBKR account is **Cash** (not Margin) and that interest-on-cash is opted out.
-4. Lower `RiskLimits.max_order_pct_of_equity` for the first live run; the default 5% is fine for paper but aggressive for new live capital.
+1. **IBKR**: set `ALLOW_LIVE=true` and `IBKR_PORT=4001` (Gateway-live) in `ibkr/.env`
+2. **Alpaca**: set `ALLOW_LIVE=true` and `ALPACA_PAPER=false` in `alpaca/.env`
 
-## Layout
+For both, **read each side's README first.** Re-screen the universe quarterly. Lower position sizes for first live runs.
 
-```
-src/mt/
-  universe.py    # halal allowlist + assert_halal guard
-  risk.py        # cash-account, no-shorting, position-sizing checks
-  broker.py      # IBKR connection via ib_async; halal guard at submit
-  strategy.py    # SMA crossover starter; replace as you like
-  engine.py      # data → signal → risk → broker, one pass per call
-  cli.py         # `mt list-universe`, `mt account`, `mt run`
-config/
-  halal_universe.yaml   # the screened symbols
-tests/
-  test_universe.py   # allowlist enforcement
-  test_risk.py       # halal + risk rules
-```
+## License / disclaimer
 
-## Scholarly notes (worth knowing)
-
-- **Settlement (T+1):** US equities now settle T+1 (since May 2024). Most contemporary fatwas accept this.
-- **Brokerage commissions:** universally accepted as a fee-for-service, not riba.
-- **Compliance is dynamic:** AAOIFI ratios are recomputed each quarter. A stock that passes today may fail next quarter. **Re-screen the universe quarterly** — at minimum check debt-to-market-cap, cash-and-receivables-to-market-cap, and impermissible-income ratios via Zoya, Islamicly, Musaffa, or your scholar.
-- **Tesla, Procter & Gamble, Coca-Cola, Home Depot, NextEra:** historically borderline on debt ratios — listed under `watchlist_review_required` in the YAML and **not tradable** until you re-verify them yourself.
-- **Pure-play sectors that are out:** conventional banks, conventional insurance, alcohol, tobacco, gambling, adult, primary defense contractors, pork, conventional asset management, interest-based lending. The screen is sector-then-ratios.
-
-This is not a fatwa. Cross-check anything significant with a scholar you trust.
+Personal project. Not financial advice. Halal screening is mine + ETF-derived; cross-check with your scholar before live trading.
