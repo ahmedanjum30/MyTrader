@@ -202,6 +202,68 @@ def status_cmd(budget: float | None) -> None:
                        f"{f'${lmt:.2f}' if lmt > 0 else 'MKT'}")
 
 
+@cli.command("history")
+@click.option("--period", default="1M",
+              type=click.Choice(["1D", "1W", "1M", "3M", "1Y", "all"]),
+              help="Look-back period")
+@click.option("--timeframe", default="1D",
+              type=click.Choice(["1Min", "5Min", "15Min", "1H", "1D"]),
+              help="Bar size for the equity curve")
+def history_cmd(period: str, timeframe: str) -> None:
+    """Show portfolio equity over time — did your $$ grow or shrink?"""
+    universe = load_universe()
+    broker = AlpacaBroker(_config(), universe)
+    broker.connect()
+
+    try:
+        df = broker.portfolio_history(period=period, timeframe=timeframe)
+    except Exception as e:
+        click.echo(f"Could not fetch history: {e}")
+        return
+
+    if df.empty:
+        click.echo("No history available yet (account too new or no activity).")
+        return
+
+    # Use Alpaca's profit_loss field — it excludes deposits/funding events.
+    # Equity-diff computation is misleading when the account just got funded.
+    pnl_dollar = float(df["profit_loss"].iloc[-1] or 0)
+    pnl_pct = float(df["profit_loss_pct"].iloc[-1] or 0) * 100
+
+    # "Funded" equity (first row where account had money)
+    funded_rows = df[df["equity"] > 0]
+    funded_at = float(funded_rows["equity"].iloc[0]) if not funded_rows.empty else 0
+    current = float(df["equity"].iloc[-1])
+    high = float(funded_rows["equity"].max()) if not funded_rows.empty else 0
+    low = float(funded_rows["equity"].min()) if not funded_rows.empty else 0
+
+    click.echo(f"\nPortfolio history — last {period}  (timeframe: {timeframe})")
+    click.echo("=" * 70)
+    click.echo(f"  Account funded:  ${funded_at:>12,.2f}")
+    click.echo(f"  Current equity:  ${current:>12,.2f}")
+    color = "green" if pnl_dollar >= 0 else "red"
+    click.echo(click.style(
+        f"  Trading P&L:     ${pnl_dollar:>+12,.2f}  ({pnl_pct:+.2f}%)", fg=color))
+    click.echo(f"  Period high:     ${high:>12,.2f}")
+    click.echo(f"  Period low:      ${low:>12,.2f}")
+    click.echo("=" * 70)
+
+    # Show the trajectory (every nth row, max ~15 lines)
+    n = max(1, len(df) // 15)
+    sample = df.iloc[::n]
+    click.echo(f"\n{'Date':<14}  {'Equity':>14}  {'P&L $':>12}  {'P&L %':>9}")
+    click.echo("-" * 56)
+    for _, row in sample.iterrows():
+        ts = row["timestamp"].strftime("%Y-%m-%d %H:%M") if timeframe != "1D" \
+            else row["timestamp"].strftime("%Y-%m-%d")
+        eq = float(row["equity"])
+        pnl = float(row.get("profit_loss") or 0)
+        pnl_pct = float(row.get("profit_loss_pct") or 0) * 100
+        line_color = "green" if pnl >= 0 else ("red" if pnl < 0 else None)
+        line = f"{ts:<14}  ${eq:>13,.2f}  ${pnl:>+11,.2f}  {pnl_pct:>+7.2f}%"
+        click.echo(click.style(line, fg=line_color) if line_color else line)
+
+
 @cli.command("deploy")
 @click.option("--budget", default=1000.0, type=float, help="Total dollar budget")
 @click.option("--strategy", "strategy_name", default="buyhold",

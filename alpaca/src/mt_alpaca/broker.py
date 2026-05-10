@@ -178,6 +178,43 @@ class AlpacaBroker:
         df = pd.DataFrame(rows).set_index("date").tail(lookback_days)
         return df
 
+    # ---------- Portfolio history (Alpaca-native equity tracking) ----------
+
+    def portfolio_history(self, period: str = "1M", timeframe: str = "1D") -> pd.DataFrame:
+        """Return equity / P&L time series from Alpaca's account history.
+
+        period: "1D", "1W", "1M", "3M", "1Y", "all"
+        timeframe: "1Min", "5Min", "15Min", "1H", "1D"
+
+        Returns DataFrame with columns: timestamp, equity, profit_loss,
+        profit_loss_pct, base_value.
+        """
+        # Use the raw HTTP method since the SDK's get_portfolio_history wrapping
+        # changed across versions; this works against the documented endpoint.
+        params = {"period": period, "timeframe": timeframe}
+        try:
+            response = self.trading.get_portfolio_history(filter=None, **params)
+        except TypeError:
+            # Older / different SDK signature
+            response = self.trading.get(f"/account/portfolio/history",
+                                         data=params)
+        # Normalize across SDK versions
+        timestamps = getattr(response, "timestamp", None) or response.get("timestamp", [])
+        equities = getattr(response, "equity", None) or response.get("equity", [])
+        pnl = getattr(response, "profit_loss", None) or response.get("profit_loss", [])
+        pnl_pct = getattr(response, "profit_loss_pct", None) or response.get("profit_loss_pct", [])
+
+        if not timestamps:
+            return pd.DataFrame()
+
+        df = pd.DataFrame({
+            "timestamp": pd.to_datetime(timestamps, unit="s"),
+            "equity": equities,
+            "profit_loss": pnl,
+            "profit_loss_pct": pnl_pct,
+        })
+        return df
+
     # ---------- Order management ----------
 
     def cancel_all_open_orders(self) -> int:
